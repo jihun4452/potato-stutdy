@@ -1,37 +1,90 @@
 package com.example.gamja.service;
 
-import com.example.gamja.dto.UserSignUpRequestDto;
-import com.example.gamja.entity.User;
+import com.example.gamja.dto.UserCreateDto;
+import com.example.gamja.dto.UserStatus;
+import com.example.gamja.dto.UserUpdateDto;
+import com.example.gamja.exception.CertificationCodeNotMatchedException;
+import com.example.gamja.exception.ResourceNotFoundException;
+import com.example.gamja.repository.UserEntity;
 import com.example.gamja.repository.UserRepository;
-import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
+import org.springframework.mail.SimpleMailMessage;
+import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.time.Clock;
+import java.util.Optional;
+import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor
 public class UserService {
+
     private final UserRepository userRepository;
-    public void SignUp(UserSignUpRequestDto UserSignUp, HttpServletResponse response) {
-        if(userRepository.findByEmail(UserSignUp.getEmail()).isPresent()){
-            throw new RuntimeException("사용자의 이메일이 이미 존재합니다.");
-        }
-        if(userRepository.findByName(UserSignUp.getName()).isPresent()){
-            throw new RuntimeException("이미 존재하는 이메일주소입니다.");
-        }
-        User user = UserSignUp.toSignUpUser();
-        userRepository.save(user);
+    private final JavaMailSender mailSender;
+
+    public Optional<UserEntity> getById(long id) {
+        return userRepository.findByIdAndStatus(id, UserStatus.ACTIVE);
     }
 
-    public User getUserById(Long id) {
-        return userRepository.findById(id)
-                .orElseThrow(() -> new RuntimeException("해당 id를 가진 사용자가 없습니다."));
+    public UserEntity getByEmail(String email) {
+        return userRepository.findByEmailAndStatus(email, UserStatus.ACTIVE)
+            .orElseThrow(() -> new ResourceNotFoundException("Users", email));
     }
 
-    // id 값으로 유저 삭제
-    public void deleteUserById(Long id) {
-        if (!userRepository.existsById(id)) {
-            throw new RuntimeException("해당 id를 가진 사용자가 없습니다.");
+    public UserEntity getByIdOrElseThrow(long id) {
+        return userRepository.findByIdAndStatus(id, UserStatus.ACTIVE)
+            .orElseThrow(() -> new ResourceNotFoundException("Users", id));
+    }
+
+    @Transactional
+    public UserEntity createUser(UserCreateDto userCreateDto) {
+        UserEntity userEntity = new UserEntity();
+        userEntity.setEmail(userCreateDto.getEmail());
+        userEntity.setNickname(userCreateDto.getNickname());
+        userEntity.setAddress(userCreateDto.getAddress());
+        userEntity.setStatus(UserStatus.PENDING);
+        userEntity.setCertificationCode(UUID.randomUUID().toString());
+        userEntity = userRepository.save(userEntity);
+        String certificationUrl = generateCertificationUrl(userEntity);
+        sendCertificationEmail(userCreateDto.getEmail(), certificationUrl);
+        return userEntity;
+    }
+
+    @Transactional
+    public UserEntity updateUser(long id, UserUpdateDto userUpdateDto) {
+        UserEntity userEntity = getByIdOrElseThrow(id);
+        userEntity.setNickname(userUpdateDto.getNickname());
+        userEntity.setAddress(userUpdateDto.getAddress());
+        userEntity = userRepository.save(userEntity);
+        return userEntity;
+    }
+
+    @Transactional
+    public void login(long id) {
+        UserEntity userEntity = userRepository.findById(id).orElseThrow(() -> new ResourceNotFoundException("Users", id));
+        userEntity.setLastLoginAt(Clock.systemUTC().millis());
+    }
+
+    @Transactional
+    public void verifyEmail(long id, String certificationCode) {
+        UserEntity userEntity = userRepository.findById(id).orElseThrow(() -> new ResourceNotFoundException("Users", id));
+        if (!certificationCode.equals(userEntity.getCertificationCode())) {
+            throw new CertificationCodeNotMatchedException();
         }
-        userRepository.deleteById(id);
+        userEntity.setStatus(UserStatus.ACTIVE);
+    }
+
+    private void sendCertificationEmail(String email, String certificationUrl) {
+        SimpleMailMessage message = new SimpleMailMessage();
+        message.setTo(email);
+        message.setSubject("Please certify your email address");
+        message.setText("Please click the following link to certify your email address: " + certificationUrl);
+        mailSender.send(message);
+    }
+
+    private String generateCertificationUrl(UserEntity userEntity) {
+        return "http://localhost:8080/api/users/" + userEntity.getId() + "/verify?certificationCode=" + userEntity.getCertificationCode();
     }
 }
