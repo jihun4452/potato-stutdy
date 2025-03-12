@@ -6,6 +6,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabase;
 import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
 import org.springframework.test.context.jdbc.Sql;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.Optional;
 
@@ -14,6 +15,7 @@ import static org.assertj.core.api.AssertionsForInterfaceTypes.assertThat;
 @DataJpaTest
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
 @Sql("/sql/user-repository-test-data.sql")
+@Transactional
 public class UserRepositoryTest {
     @Autowired
     private UserRepository userRepository;
@@ -32,7 +34,7 @@ public class UserRepositoryTest {
 
     @Test
     void findByEmailAndStatus_이메일로_조회(){
-        Optional<UserEntity> findByEmailUser = userRepository.findByEmailAndStatus("test1@gmail.com", UserStatus.ACTIVE);
+        Optional<UserEntity> findByEmailUser = userRepository.findByEmailAndStatus("test6@gmail.com", UserStatus.ACTIVE);
         assertThat(findByEmailUser.isEmpty()).isFalse();
     }
 }
